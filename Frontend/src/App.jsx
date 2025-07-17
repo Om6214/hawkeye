@@ -1,73 +1,93 @@
-import { useEffect, useState } from 'react';
-import { supabase } from './supabaseClient';
+// App.js
+import React, { useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { setUser, clearUser } from "./store/userSlice";
+import { supabase } from "./supabaseClient";
+import Landing from "./Pages/Landing";
+import Dashboard from "./Pages/Dashboard";
+import Repositories from "./Pages/Repositories";
+import Navbar from "./Components/Navbar";
+import ScanResults from "./Pages/ScanResult";
 
 function App() {
-  const [user, setUser] = useState(null);
+  const dispatch = useDispatch();
+  const user = useSelector((state) => state.user.user);
 
   useEffect(() => {
-  const fetchToken = async () => {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (session) {
-      console.log("🔑 Supabase JWT Token:", session.access_token);
-    } else {
-      console.log("❌ No session found");
-    }
-  };
+    // Check for existing session on app load
+    const checkSession = async () => {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
 
-  fetchToken();
-  const callSecureRoute = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
+      if (error) {
+        console.error("Error getting session:", error);
+        return;
+      }
 
-  const res = await fetch('http://localhost:5000/profile', {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
+      if (session) {
+        dispatch(
+          setUser({
+            user: session.user,
+            githubToken: session.provider_token,
+          })
+        );
+      }
+    };
 
-  const data = await res.json();
-  console.log('🔒 Backend Response:', data);
-};
-callSecureRoute
-}, []);
+    checkSession();
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+    // Listen for auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        dispatch(
+          setUser({
+            user: session.user,
+            githubToken: session.provider_token,
+          })
+        );
+      } else {
+        dispatch(clearUser());
+      }
     });
 
-    // Realtime auth change listener
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'github',
-    });
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-  
+    return () => subscription.unsubscribe();
+  }, [dispatch]);
 
   return (
-    <div style={{ padding: 30 }}>
-      <h1>🛡️ HawkEye Auth</h1>
-      {user ? (
-        <>
-          <p>✅ Logged in as: {user.email}</p>
-          <button onClick={handleLogout}>Logout</button>
-        </>
-      ) : (
-        <button onClick={handleLogin}>Login with GitHub</button>
-      )}
-    </div>
+    <>
+      <Router>
+        <Navbar />
+        <Routes>
+          <Route
+            path="/"
+            element={user ? <Navigate to="/dashboard" /> : <Landing />}
+          />
+          <Route
+            path="/dashboard"
+            element={user ? <Dashboard /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/repositories"
+            element={user ? <Repositories /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/scan-results/:scanId"
+            element={user ? <ScanResults /> : <Navigate to="/" />}
+          />
+          {/* Add more protected routes as needed */}
+        </Routes>
+      </Router>
+    </>
   );
 }
 

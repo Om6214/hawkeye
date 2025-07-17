@@ -27,6 +27,8 @@ const authRoutes = require('./routes/authRoutes');
 const profileRoute = require('./routes/profile');
 app.use('/auth', authRoutes);
 app.use('/profile',profileRoute);
+app.use('/api/scan',require('./routes/scanRoutes'));
+app.use('/api/github',require('./routes/githubRoutes'));
 
 // Start
 const PORT = process.env.PORT || 5000;
