@@ -1,22 +1,31 @@
-// store/scanSlice.js
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 
 export const startScan = createAsyncThunk(
-  'scan/startScan',
+  "scan/startScan",
   async ({ scanType, repoUrl, userId }, { rejectWithValue }) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/scan/${scanType}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_url: repoUrl, github_id: userId })
-      });
+      const response = await fetch(
+        `http://localhost:5000/api/scan/${scanType}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo_url: repoUrl, github_id: userId }),
+        }
+      );
 
       if (!response.ok) {
         const error = await response.json();
         return rejectWithValue(error);
       }
 
-      return await response.json();
+      const data = await response.json();
+      // Normalize the response structure
+      return {
+        scan_id: data.scan_id,
+        status: "pending",
+        message: data.message,
+        findings_count: data.trufflehog_findings_count,
+      };
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -24,17 +33,29 @@ export const startScan = createAsyncThunk(
 );
 
 export const fetchScanResults = createAsyncThunk(
-  'scan/fetchScanResults',
+  "scan/fetchScanResults",
   async (scanId, { rejectWithValue }) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/scan/result/${scanId}`);
-      
+      const response = await fetch(
+        `http://localhost:5000/api/scan/result/${scanId}`
+      );
+
       if (!response.ok) {
         const error = await response.json();
         return rejectWithValue(error);
       }
-      
-      return await response.json();
+
+      const data = await response.json();
+      // Normalize the response structure
+      return {
+        scan_id: data.scan_id,
+        status: data.status,
+        findings: data.findings,
+        repo_name: data.repo_name,
+        started_at: data.started_at,
+        completed_at: data.completed_at,
+        duration_seconds: data.duration_seconds,
+      };
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -45,16 +66,28 @@ const initialState = {
   currentScan: null,
   results: {},
   loading: false,
-  error: null
+  error: null,
 };
 
 const scanSlice = createSlice({
-  name: 'scan',
+  name: "scan",
   initialState,
   reducers: {
     clearScan: (state) => {
       state.currentScan = null;
-    }
+    },
+    setScanLoading: (state, action) => {
+      state.loading = action.payload;
+    },
+    updateScanStatus: (state, action) => {
+      const { scan_id, status } = action.payload;
+      if (state.results[scan_id]) {
+        state.results[scan_id].status = status;
+      }
+      if (state.currentScan?.scan_id === scan_id) {
+        state.currentScan.status = status;
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -64,9 +97,12 @@ const scanSlice = createSlice({
       })
       .addCase(startScan.fulfilled, (state, action) => {
         state.loading = false;
-        state.currentScan = action.payload;
-        // Cache results
-        state.results[action.payload.scan_id] = action.payload;
+        const scanData = {
+          ...action.payload,
+          status: "pending", // Initial status
+        };
+        state.currentScan = scanData;
+        state.results[action.payload.scan_id] = scanData;
       })
       .addCase(startScan.rejected, (state, action) => {
         state.loading = false;
@@ -78,14 +114,28 @@ const scanSlice = createSlice({
       })
       .addCase(fetchScanResults.fulfilled, (state, action) => {
         state.loading = false;
-        state.results[action.payload.scan_id] = action.payload;
+        const scanData = action.payload;
+
+        // Update existing scan data
+        const existing = state.results[scanData.scan_id] || {};
+        const updatedScan = {
+          ...existing,
+          ...scanData,
+        };
+
+        state.results[scanData.scan_id] = updatedScan;
+
+        // Update currentScan if it's the active one
+        if (state.currentScan?.scan_id === scanData.scan_id) {
+          state.currentScan = updatedScan;
+        }
       })
       .addCase(fetchScanResults.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       });
-  }
+  },
 });
 
-export const { clearScan } = scanSlice.actions;
+export const { clearScan, updateScanStatus,setScanLoading } = scanSlice.actions;
 export default scanSlice.reducer;

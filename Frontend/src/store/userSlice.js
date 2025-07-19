@@ -15,10 +15,12 @@ const userSlice = createSlice({
       state.user = action.payload.user;
       state.githubToken = action.payload.githubToken;
       state.userId = action.payload.user.id;
+      state.session = action.payload.session;
     },
     clearUser: (state) => {
       state.user = null;
       state.githubToken = null;
+      state.session = null;
     }
   }
 });

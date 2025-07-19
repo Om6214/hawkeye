@@ -1,4 +1,3 @@
-// Repositories.jsx
 import React, { useEffect, useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { fetchRepos } from "../store/repoSlice";
@@ -12,6 +11,7 @@ import {
   FaCaretDown,
   FaLockOpen,
   FaGithub,
+  FaSpinner,
 } from "react-icons/fa";
 import {
   SiJavascript,
@@ -27,6 +27,7 @@ const Repositories = () => {
   const dispatch = useDispatch();
   const [githubToken, setGithubToken] = useState(null);
   const navigate = useNavigate();
+  const [scanningRepo, setScanningRepo] = useState(null); // Track currently scanning repo
 
   // Get user from Redux store
   const user = useSelector((state) => state.user.user);
@@ -36,17 +37,24 @@ const Repositories = () => {
   const { repos = [], loading = false, error = null } = reposState;
 
   const handleScan = (scanType, repo) => {
+    setScanningRepo({ id: repo.id, type: scanType }); // Set scanning state
+
     dispatch(
       startScan({
         scanType,
         repoUrl: repo.html_url,
-        userId: user.identities[0].id,
+        userId: user.user_metadata.provider_id,
       })
-    ).then((action) => {
-      if (startScan.fulfilled.match(action)) {
-        navigate(`/scan-results/${action.payload.scan_id}`);
-      }
-    });
+    )
+      .then((action) => {
+        setScanningRepo(null); // Clear scanning state
+        if (startScan.fulfilled.match(action)) {
+          navigate(`/scan-results/${action.payload.scan_id}`);
+        }
+      })
+      .catch(() => {
+        setScanningRepo(null); // Ensure scanning state is cleared on error
+      });
   };
 
   useEffect(() => {
@@ -64,7 +72,7 @@ const Repositories = () => {
         // Extract GitHub token from session
         const token = session.provider_token;
         if (!token) throw new Error("GitHub token not found in session");
-
+        console.log("GitHub Token:", token);
         setGithubToken(token);
         dispatch(fetchRepos(token));
       } catch (err) {
@@ -310,8 +318,9 @@ const Repositories = () => {
           {repos.map((repo) => (
             <div
               key={repo.id}
-              className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-blue-500/50 transition-colors flex flex-col h-full"
+              className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-blue-500/50 transition-colors flex flex-col h-full relative"
             >
+
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-start gap-3">
                   <div className="mt-1">
@@ -387,47 +396,80 @@ const Repositories = () => {
                   View on GitHub
                 </a>
                 <div className="relative group">
-                  <button className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-sm px-3 py-1 rounded transition-colors flex items-center">
-                    Scan
-                    <FaCaretDown className="ml-1" />
+                  <button
+                    className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-sm px-3 py-1 rounded transition-colors flex items-center"
+                    disabled={scanningRepo?.id === repo.id}
+                  >
+                    {scanningRepo?.id === repo.id ? (
+                      <>
+                        <FaSpinner className="h-4 w-4 text-blue-400 animate-spin mr-1" />
+                        Scanning
+                      </>
+                    ) : (
+                      <>
+                        Scan
+                        <FaCaretDown className="ml-1" />
+                      </>
+                    )}
                   </button>
 
                   <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform group-hover:translate-y-0 translate-y-1 z-10">
                     <div className="py-1">
                       <button
                         onClick={() => handleScan("trufflehog", repo)}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center"
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span className="bg-purple-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">T</span>
                         </span>
                         Trufflehog Scan
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center">
+                      <button
+                        onClick={() => handleScan("gitleaks", repo)}
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <span className="bg-green-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">G</span>
                         </span>
                         Gitleaks Scan
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center">
+                      <button
+                        onClick={() => handleScan("semgrep", repo)}
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <span className="bg-yellow-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">S</span>
                         </span>
                         Semgrep Audit
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center">
+                      <button
+                        onClick={() => handleScan("dependencies", repo)}
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <span className="bg-blue-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">D</span>
                         </span>
                         Dependency Scan
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center">
+                      <button
+                        onClick={() => handleScan("codeql", repo)}
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <span className="bg-red-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">C</span>
                         </span>
                         CodeQL Analysis
                       </button>
-                      <button className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center">
+                      <button
+                        onClick={() => handleScan("full", repo)}
+                        disabled={scanningRepo?.id === repo.id}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <span className="bg-indigo-500/20 w-6 h-6 rounded-full flex items-center justify-center mr-2">
                           <span className="text-xs">F</span>
                         </span>

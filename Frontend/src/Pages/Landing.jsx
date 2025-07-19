@@ -1,18 +1,30 @@
 // Landing.jsx
+import { useState } from "react";
 import { supabase } from "../supabaseClient";
 import { useNavigate } from "react-router-dom";
 
 const Landing = () => {
   const navigate = useNavigate();
+  const [loginError, setLoginError] = useState(null);
 
   const loginWithGitHub = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
+        options: { redirectTo: "http://localhost:5173" },
         scopes: "repo", // Request repository access
-        redirectTo: window.location.origin,
       },
     });
+    if (error) {
+      setLoginError(error.description || error.message || "Unknown error");
+      console.error("Login error:", error);
+    }
+    if (data) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      dispatch(setUser({ user: session.user, session }));
+    }
 
     if (error) {
       console.error("Login error:", error);
@@ -57,6 +69,9 @@ const Landing = () => {
           Keep your repositories secure with advanced vulnerability scanning and
           monitoring
         </p>
+        {loginError && (
+          <div className="mb-4 text-red-500 font-semibold">{loginError}</div>
+        )}
 
         <button
           onClick={loginWithGitHub}

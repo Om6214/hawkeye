@@ -1,4 +1,3 @@
-// App.js
 import React, { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -9,18 +8,24 @@ import {
 } from "react-router-dom";
 import { setUser, clearUser } from "./store/userSlice";
 import { supabase } from "./supabaseClient";
+import { PersistGate } from "redux-persist/integration/react";
+import { store, persistor } from "./store";
+
+// Import components
 import Landing from "./Pages/Landing";
 import Dashboard from "./Pages/Dashboard";
 import Repositories from "./Pages/Repositories";
 import Navbar from "./Components/Navbar";
-import ScanResults from "./Pages/ScanResult";
+import Reports from "./Pages/reports";
+import ScanResult from "./Pages/ScanResult";
+import PastScans from "./Pages/PastScans";
 
 function App() {
   const dispatch = useDispatch();
   const user = useSelector((state) => state.user.user);
+  const [loading, setLoading] = React.useState(true);
 
   useEffect(() => {
-    // Check for existing session on app load
     const checkSession = async () => {
       const {
         data: { session },
@@ -29,6 +34,7 @@ function App() {
 
       if (error) {
         console.error("Error getting session:", error);
+        setLoading(false);
         return;
       }
 
@@ -40,11 +46,11 @@ function App() {
           })
         );
       }
+      setLoading(false);
     };
 
     checkSession();
 
-    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -63,8 +69,16 @@ function App() {
     return () => subscription.unsubscribe();
   }, [dispatch]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <PersistGate loading={null} persistor={persistor}>
       <Router>
         <Navbar />
         <Routes>
@@ -82,12 +96,19 @@ function App() {
           />
           <Route
             path="/scan-results/:scanId"
-            element={user ? <ScanResults /> : <Navigate to="/" />}
+            element={user ? <ScanResult /> : <Navigate to="/" />}
           />
-          {/* Add more protected routes as needed */}
+          <Route
+            path="/past-scans/:githubId"
+            element={user ? <PastScans /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/reports"
+            element={user ? <Reports /> : <Navigate to="/" />}
+          />
         </Routes>
       </Router>
-    </>
+    </PersistGate>
   );
 }
 

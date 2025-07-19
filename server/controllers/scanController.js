@@ -74,6 +74,7 @@ exports.runTruffleHogScan = async (req, res) => {
         started_at: startTime.toISOString(),
         completed_at: endTime.toISOString(),
         duration_seconds,
+        github_id: github_id, // Store github_id for reference
       },
     ]);
 
@@ -139,5 +140,39 @@ exports.getScanResultById = async (req, res) => {
     res
       .status(500)
       .json({ error: "Failed to fetch scan result", details: err.message });
+  }
+};
+
+exports.getUserScanResults = async (req, res) => {
+  const { github_id } = req.params;
+  if (!github_id) {
+    return res.status(400).json({ error: "github_id is required" });
+  }
+  try {
+    const { data: results, error } = await supabase
+      .from("scan_results")
+      .select("*")
+      .eq("github_id", github_id);
+
+    if (error) {
+      console.error(error);
+      return res
+        .status(500)
+        .json({ error: "Supabase error", details: error.message });
+    }
+
+    // (Optional) Sort as desired in JS:
+    const sortedResults = results.sort(
+      (a, b) => new Date(b.started_at) - new Date(a.started_at)
+      // OR: (a, b) => new Date(b.scans?.started_at || 0) - new Date(a.scans?.started_at || 0)
+    );
+
+    return res.status(200).json({ results: sortedResults });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: "Failed to fetch user scan results",
+      details: err.message,
+    });
   }
 };
