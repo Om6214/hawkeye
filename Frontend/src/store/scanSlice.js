@@ -9,7 +9,11 @@ export const startScan = createAsyncThunk(
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repo_url: repoUrl, github_id: userId }),
+          body: JSON.stringify({
+            repo_url: repoUrl,
+            github_id: userId,
+            scan_type: scanType,
+          }),
         }
       );
 
@@ -46,15 +50,11 @@ export const fetchScanResults = createAsyncThunk(
       }
 
       const data = await response.json();
+      console.log(data);
       // Normalize the response structure
       return {
         scan_id: data.scan_id,
-        status: data.status,
-        findings: data.findings,
-        repo_name: data.repo_name,
-        started_at: data.started_at,
-        completed_at: data.completed_at,
-        duration_seconds: data.duration_seconds,
+        ...data,
       };
     } catch (error) {
       return rejectWithValue(error.message);
@@ -97,12 +97,15 @@ const scanSlice = createSlice({
       })
       .addCase(startScan.fulfilled, (state, action) => {
         state.loading = false;
-        const scanData = {
-          ...action.payload,
-          status: "pending", // Initial status
+        const { scan_id, ...scanData } = action.payload;
+        state.results[scan_id] = {
+          ...(state.results[scan_id] || {}), // Preserve existing data if any
+          ...scanData, // Merge new scan data
+          scan_id, // Ensure scan_id is preserved
         };
-        state.currentScan = scanData;
-        state.results[action.payload.scan_id] = scanData;
+        if (state.currentScan?.scan_id === scan_id) {
+          state.currentScan = state.results[scan_id];
+        }
       })
       .addCase(startScan.rejected, (state, action) => {
         state.loading = false;
@@ -137,5 +140,6 @@ const scanSlice = createSlice({
   },
 });
 
-export const { clearScan, updateScanStatus,setScanLoading } = scanSlice.actions;
+export const { clearScan, updateScanStatus, setScanLoading } =
+  scanSlice.actions;
 export default scanSlice.reducer;

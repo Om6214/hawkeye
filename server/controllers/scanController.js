@@ -1,6 +1,9 @@
 const supabase = require("../config/supabaseClient");
 const runTrufflehogScan = require("../services/trufflehogService");
+const runSemgrepScan = require("../services/semgrepService"); // Add this
+const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const fs = require('fs-extra');
 
 function getRepoOwner(url) {
   const match = url.match(/github\.com\/([^/]+)/);
@@ -12,8 +15,14 @@ function getRepoName(url) {
   return match ? match[1] : null;
 }
 
+// Helper function to get cache path
+function getRepoCachePath(repo_url) {
+  const safeRepoName = repo_url.replace(/[^a-zA-Z0-9_]/g, '_');
+  return path.join(__dirname, '../repo_cache', safeRepoName);
+}
+
 exports.runTruffleHogScan = async (req, res) => {
-  const { repo_url, github_id } = req.body; // Changed from user_id to github_id
+  const { repo_url, github_id, scan_type = "security" } = req.body;
 
   if (!repo_url || !github_id) {
     return res.status(400).json({ error: "repo_url and github_id required" });
@@ -29,13 +38,11 @@ exports.runTruffleHogScan = async (req, res) => {
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("id, access_token")
-      .eq("github_id", github_id) // Changed to use github_id
+      .eq("github_id", github_id)
       .single();
 
     if (userError || !user) {
-      return res
-        .status(400)
-        .json({ error: "Invalid github_id: user not found" });
+      return res.status(400).json({ error: "Invalid github_id: user not found" });
     }
 
     // 2. Insert scan entry
@@ -48,37 +55,51 @@ exports.runTruffleHogScan = async (req, res) => {
           repo_owner,
           branch,
           status: "in_progress",
-        },
+          scan_type  // Add scan type
+        }
       ])
       .select()
       .single();
 
     if (insertError) throw insertError;
-
     const scan_id = scan.id;
 
-    // 3. Run scan with user's access token
-    const trufflehogFindings = await runTrufflehogScan(
-      repo_url,
-      user.access_token // Pass access token to service
-    );
+    // 3. Get repository cache path
+    const repoCachePath = getRepoCachePath(repo_url);
+    await fs.ensureDir(repoCachePath);
+
+    // 4. Run scans based on type
+    let trufflehogFindings = [];
+    let semgrepFindings = [];
+
+    if (scan_type === "trufflehog" || scan_type === "full") {
+      trufflehogFindings = await runTrufflehogScan(
+        repo_url,
+        user.access_token
+      );
+    }
+
+    if (scan_type === "semgrep" || scan_type === "full") {
+      semgrepFindings = await runSemgrepScan(repoCachePath);
+    }
 
     const endTime = new Date();
     const duration_seconds = Math.floor((endTime - startTime) / 1000);
 
-    // 4. Insert scan results
+    // 5. Insert scan results
     await supabase.from("scan_results").insert([
       {
         scan_id,
-        findings: trufflehogFindings,
+        trufflehog_findings: trufflehogFindings,
+        semgrep_findings: semgrepFindings,
         started_at: startTime.toISOString(),
         completed_at: endTime.toISOString(),
         duration_seconds,
-        github_id: github_id, // Store github_id for reference
-      },
+        github_id,
+      }
     ]);
 
-    // 5. Update scan status
+    // 6. Update scan status
     await supabase
       .from("scans")
       .update({ status: "completed", completed_at: endTime.toISOString() })
@@ -88,10 +109,11 @@ exports.runTruffleHogScan = async (req, res) => {
       message: "Scan completed",
       scan_id,
       trufflehog_findings_count: trufflehogFindings.length,
+      semgrep_findings_count: semgrepFindings.length,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Full scan failed", details: error.message });
+    res.status(500).json({ error: "Scan failed", details: error.message });
   }
 };
 
@@ -130,16 +152,19 @@ exports.getScanResultById = async (req, res) => {
       status: scan.status,
       repo_name: scan.repo_name,
       repo_owner: scan.repo_owner,
-      findings: result.findings,
+      scan_type: scan.scan_type,
+      trufflehog_findings: result.trufflehog_findings,
+      semgrep_findings: result.semgrep_findings,
       started_at: result.started_at,
       completed_at: result.completed_at,
       duration_seconds: result.duration_seconds,
     });
   } catch (err) {
     console.error(err);
-    res
-      .status(500)
-      .json({ error: "Failed to fetch scan result", details: err.message });
+    res.status(500).json({ 
+      error: "Failed to fetch scan result", 
+      details: err.message 
+    });
   }
 };
 
@@ -151,20 +176,28 @@ exports.getUserScanResults = async (req, res) => {
   try {
     const { data: results, error } = await supabase
       .from("scan_results")
-      .select("*")
+      .select("*, scans:scan_id (repo_name, repo_owner, scan_type)")
       .eq("github_id", github_id);
 
     if (error) {
       console.error(error);
-      return res
-        .status(500)
-        .json({ error: "Supabase error", details: error.message });
+      return res.status(500).json({ 
+        error: "Supabase error", 
+        details: error.message 
+      });
     }
 
-    // (Optional) Sort as desired in JS:
-    const sortedResults = results.sort(
+    // Enrich results with scan information
+    const enrichedResults = results.map(result => ({
+      ...result,
+      repo_name: result.scans.repo_name,
+      repo_owner: result.scans.repo_owner,
+      scan_type: result.scans.scan_type
+    }));
+
+    // Sort by started_at descending
+    const sortedResults = enrichedResults.sort(
       (a, b) => new Date(b.started_at) - new Date(a.started_at)
-      // OR: (a, b) => new Date(b.scans?.started_at || 0) - new Date(a.scans?.started_at || 0)
     );
 
     return res.status(200).json({ results: sortedResults });
